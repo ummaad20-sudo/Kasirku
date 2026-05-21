@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kasirku – Sistem Kasir Modern</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- LOGIN SCREEN -->
+        <div v-if="!authenticated" class="login-container">
+            <div class="login-card">
+                <h1>KASIRKU</h1>
+                <p class="login-subtitle">Silakan login untuk melanjutkan</p>
+                
+                <form @submit.prevent="doLogin">
+                    <input 
+                        v-model="loginForm.username" 
+                        type="text" 
+                        placeholder="Username" 
+                        class="input-field"
+                        required
+                    >
+                    <input 
+                        v-model="loginForm.password" 
+                        type="password" 
+                        placeholder="Password" 
+                        class="input-field"
+                        required
+                    >
+                    <p v-if="loginError" class="error-message">{{ loginError }}</p>
+                    <button type="submit" class="btn btn-primary btn-large">MASUK</button>
+                </form>
+                
+                <p class="footer-text">Created by @ Junaid adzan isnam</p>
+            </div>
+        </div>
+
+        <!-- MAIN APP -->
+        <div v-else class="app-container">
+            <!-- HEADER -->
+            <div class="header">
+                <div class="header-content">
+                    <h1 class="app-title">KASIRKU</h1>
+                    <span class="user-info">User: {{ username }} | Role: {{ role.toUpperCase() }}</span>
+                </div>
+                <button @click="doLogout" class="btn btn-danger">Logout</button>
+            </div>
+
+            <!-- TABS -->
+            <div class="tabs">
+                <button 
+                    v-for="tab in tabs" 
+                    :key="tab"
+                    @click="currentTab = tab"
+                    :class="['tab-btn', { active: currentTab === tab }]"
+                >
+                    {{ tab }}
+                </button>
+            </div>
+
+            <!-- TAB CONTENT -->
+            <div class="tab-content">
+                <!-- TAB KASIR -->
+                <div v-show="currentTab === 'KASIR'" class="tab-pane">
+                    <div class="kasir-container">
+                        <div class="kasir-left">
+                            <!-- Search & Scan -->
+                            <div class="search-box">
+                                <input 
+                                    v-model="searchQuery" 
+                                    type="text" 
+                                    placeholder="Cari produk atau scan barcode…"
+                                    @keyup="filterProducts"
+                                    class="input-field"
+                                >
+                                <button @click="openBarcodeScanner" class="btn btn-scan">SCAN BARCODE</button>
+                            </div>
+
+                            <!-- Products Grid -->
+                            <div class="products-grid">
+                                <div 
+                                    v-for="product in filteredProducts" 
+                                    :key="product.id"
+                                    @click="addToCart(product)"
+                                    :class="['product-card', { disabled: product.stok <= 0 }]"
+                                >
+                                    <h3>{{ product.nama }}</h3>
+                                    <p class="price">Rp {{ product.harga.toLocaleString('id-ID') }}</p>
+                                    <p class="stock">{{ product.stok > 0 ? 'Stok: ' + product.stok : 'HABIS' }}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="kasir-right">
+                            <h2>Detail Pesanan</h2>
+                            <div class="cart-list">
+                                <div v-if="cart.length === 0" class="empty-cart">
+                                    Keranjang kosong
+                                </div>
+                                <div 
+                                    v-for="(item, index) in cart" 
+                                    :key="index"
+                                    class="cart-item"
+                                >
+                                    <span>{{ item.nama }}</span>
+                                    <span class="cart-price">Rp {{ item.harga.toLocaleString('id-ID') }}</span>
+                                    <button @click="removeFromCart(index)" class="btn-remove">×</button>
+                                </div>
+                            </div>
+
+                            <div class="cart-summary">
+                                <p class="count">Pcs: {{ cart.length }}</p>
+                                <p class="total">TOTAL: Rp {{ cartTotal.toLocaleString('id-ID') }}</p>
+                            </div>
+
+                            <button 
+                                @click="showPaymentOptions" 
+                                :disabled="cart.length === 0"
+                                class="btn btn-primary btn-large"
+                            >
+                                PROSES BAYAR
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB STOK -->
+                <div v-show="currentTab === 'STOK'" class="tab-pane">
+                    <div class="inventory-section">
+                        <!-- Add New Product -->
+                        <div class="add-product-form">
+                            <h2>Tambah Produk Baru</h2>
+                            <div class="form-grid">
+                                <input v-model="newProduct.nama" type="text" placeholder="Nama produk" class="input-field">
+                                <input v-model="newProduct.harga" type="number" placeholder="Harga" class="input-field">
+                                <input v-model="newProduct.stok" type="number" placeholder="Stok" class="input-field">
+                                <input v-model="newProduct.barcode" type="text" placeholder="Barcode (opsional)" class="input-field">
+                                <button @click="addNewProduct" class="btn btn-primary">SIMPAN</button>
+                            </div>
+                        </div>
+
+                        <!-- Products List -->
+                        <div class="products-list">
+                            <h2>Daftar Produk</h2>
+                            <table class="products-table">
+                                <thead>
+                                    <tr>
+                                        <th>Nama Produk</th>
+                                        <th>Harga</th>
+                                        <th>Stok</th>
+                                        <th>Barcode</th>
+                                        <th>Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="product in allProducts" :key="product.id">
+                                        <td>{{ product.nama }}</td>
+                                        <td>Rp {{ product.harga.toLocaleString('id-ID') }}</td>
+                                        <td>{{ product.stok }}</td>
+                                        <td>{{ product.barcode || '-' }}</td>
+                                        <td>
+                                            <button @click="editProduct(product)" class="btn btn-sm btn-info">Edit</button>
+                                            <button @click="deleteProduct(product.id)" class="btn btn-sm btn-danger">Hapus</button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB PENGATURAN (Admin Only) -->
+                <div v-show="currentTab === 'PENGATURAN'" class="tab-pane">
+                    <div v-if="role === 'admin'" class="settings-section">
+                        <div class="settings-group">
+                            <h2>Ganti Password</h2>
+                            <div class="form-group">
+                                <input v-model="changePassForm.old_password" type="password" placeholder="Password Lama" class="input-field">
+                                <input v-model="changePassForm.new_password" type="password" placeholder="Password Baru" class="input-field">
+                                <input v-model="changePassForm.confirm_password" type="password" placeholder="Konfirmasi Password" class="input-field">
+                                <button @click="changePassword" class="btn btn-primary">SIMPAN</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-else class="access-denied">
+                        Anda tidak memiliki akses ke menu ini
+                    </div>
+                </div>
+
+                <!-- TAB OMZET -->
+                <div v-show="currentTab === 'OMZET'" class="tab-pane">
+                    <div class="laporan-section">
+                        <!-- Stats Cards -->
+                        <div class="stats-cards">
+                            <div class="stat-card stat-grand">
+                                <p class="stat-label">Total Omzet Keseluruhan</p>
+                                <p class="stat-value">Rp {{ stats.grand_total?.toLocaleString('id-ID') }}</p>
+                                <p class="stat-count">{{ stats.grand_count }} transaksi</p>
+                            </div>
+
+                            <div class="stat-card">
+                                <p class="stat-label">Hari Ini</p>
+                                <p class="stat-value">Rp {{ stats.hari_total?.toLocaleString('id-ID') }}</p>
+                                <p class="stat-count">{{ stats.hari_count }} trx</p>
+                            </div>
+
+                            <div class="stat-card">
+                                <p class="stat-label">Minggu Ini</p>
+                                <p class="stat-value">Rp {{ stats.minggu_total?.toLocaleString('id-ID') }}</p>
+                                <p class="stat-count">{{ stats.minggu_count }} trx</p>
+                            </div>
+
+                            <div class="stat-card">
+                                <p class="stat-label">Bulan Ini</p>
+                                <p class="stat-value">Rp {{ stats.bulan_total?.toLocaleString('id-ID') }}</p>
+                                <p class="stat-count">{{ stats.bulan_count }} trx</p>
+                            </div>
+                        </div>
+
+                        <!-- Payment Methods -->
+                        <div class="payment-methods">
+                            <div class="method-card">
+                                <p class="method-label">Cash / Tunai</p>
+                                <p class="method-value">Rp {{ stats.cash_total?.toLocaleString('id-ID') }}</p>
+                            </div>
+                            <div class="method-card">
+                                <p class="method-label">QRIS</p>
+                                <p class="method-value">Rp {{ stats.qris_total?.toLocaleString('id-ID') }}</p>
+                            </div>
+                            <div class="method-card">
+                                <p class="method-label">Lainnya</p>
+                                <p class="method-value">Rp {{ stats.lain_total?.toLocaleString('id-ID') }}</p>
+                            </div>
+                        </div>
+
+                        <!-- Transactions List -->
+                        <div class="transactions-section">
+                            <h2>Riwayat Transaksi</h2>
+                            <div class="filter-buttons">
+                                <button 
+                                    v-for="filter in ['semua', 'bulan', 'minggu', 'hari']"
+                                    :key="filter"
+                                    @click="filterTransactions(filter)"
+                                    :class="['filter-btn', { active: currentTransactionFilter === filter }]"
+                                >
+                                    {{ filter.charAt(0).toUpperCase() + filter.slice(1) }}
+                                </button>
+                            </div>
+
+                            <div class="transactions-list">
+                                <div v-if="filteredTransactions.length === 0" class="empty-list">
+                                    Tidak ada transaksi
+                                </div>
+                                <div 
+                                    v-for="txn in filteredTransactions" 
+                                    :key="txn.id"
+                                    class="transaction-item"
+                                >
+                                    <div>
+                                        <p class="txn-product">{{ txn.produk }}</p>
+                                        <p class="txn-time">{{ txn.jam }}</p>
+                                    </div>
+                                    <div>
+                                        <span class="method-badge" :class="txn.metode.toLowerCase()">{{ txn.metode }}</span>
+                                        <p class="txn-price">Rp {{ txn.harga.toLocaleString('id-ID') }}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <footer class="app-footer">
+                Created by @ Junaid adzan isnam
+            </footer>
+        </div>
+
+        <!-- MODALS -->
+        <!-- Payment Modal -->
+        <div v-if="showPaymentModal" class="modal-overlay" @click="showPaymentModal = false">
+            <div class="modal" @click.stop>
+                <h2>Konfirmasi Pembayaran</h2>
+                <p class="modal-total">Total: Rp {{ cartTotal.toLocaleString('id-ID') }}</p>
+                
+                <div class="payment-methods-modal">
+                    <button @click="processPayment('Cash')" class="btn btn-primary btn-large">
+                        TUNAI / CASH
+                    </button>
+                    <button @click="processPayment('QRIS')" class="btn btn-info btn-large">
+                        SCAN QRIS
+                    </button>
+                </div>
+
+                <input 
+                    v-if="paymentMethod === 'Cash'"
+                    v-model="cashInput" 
+                    type="number" 
+                    placeholder="Uang Tunai (Rp)"
+                    class="input-field"
+                >
+                <p v-if="paymentMethod === 'Cash'" class="change-info">
+                    Kembalian: Rp {{ (parseInt(cashInput) || 0 - cartTotal).toLocaleString('id-ID') }}
+                </p>
+
+                <div class="modal-buttons">
+                    <button @click="showPaymentModal = false" class="btn btn-secondary">Batal</button>
+                    <button @click="finalizePayment" class="btn btn-primary">Bayar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
